@@ -537,23 +537,34 @@ def get_user_library_id(cur: sqlite3.Cursor) -> int:
 # ── NotebookLM 통합 ───────────────────────────────────────────────────────────
 
 def read_collection_papers_from_zotero(db_path: Path,
-                                        collection_name: str) -> str:
-    """Zotero SQLite에서 컬렉션 논문 title + abstract를 텍스트로 반환 (최대 20편)."""
+                                        collection_name: Optional[str] = None) -> str:
+    """Zotero SQLite에서 논문 title + abstract를 텍스트로 반환 (최대 150편).
+
+    collection_name 지정 시 해당 컬렉션만, None이면 전체 라이브러리에서 읽는다.
+    """
     try:
         with sqlite3.connect(str(db_path)) as con:
-            row = con.execute(
-                "SELECT collectionID FROM collections WHERE libraryID = 1 AND collectionName = ?",
-                (collection_name,)
-            ).fetchone()
-            if not row:
-                return ""
-            coll_id = row[0]
-            items = con.execute(
-                "SELECT ci.itemID FROM collectionItems ci "
-                "JOIN items i ON ci.itemID = i.itemID "
-                "WHERE ci.collectionID = ? LIMIT 20",
-                (coll_id,)
-            ).fetchall()
+            if collection_name:
+                row = con.execute(
+                    "SELECT collectionID FROM collections WHERE libraryID = 1 AND collectionName = ?",
+                    (collection_name,)
+                ).fetchone()
+                if not row:
+                    return ""
+                coll_id = row[0]
+                items = con.execute(
+                    "SELECT ci.itemID FROM collectionItems ci "
+                    "JOIN items i ON ci.itemID = i.itemID "
+                    "WHERE ci.collectionID = ? LIMIT 150",
+                    (coll_id,)
+                ).fetchall()
+            else:
+                items = con.execute(
+                    "SELECT i.itemID FROM items i "
+                    "WHERE i.libraryID = 1 "
+                    "AND i.itemTypeID NOT IN (1, 14) "
+                    "LIMIT 150",
+                ).fetchall()
             parts = []
             for n, (item_id,) in enumerate(items, 1):
                 vals = {
@@ -633,13 +644,20 @@ def open_notebooklm_analysis(db_path: Path, keyword: str,
 
 # ── Claude Code 분석 연동 ──────────────────────────────────────────────────────
 
-def save_analysis_request(keyword: str, proposal: str, output_dir: Path) -> Path:
-    """분석 요청 JSON 저장. Claude Code + Zotero MCP 분석 시 사용."""
+def save_analysis_request(keyword: str, proposal: str, output_dir: Path,
+                           db_path: Optional[Path] = None) -> Path:
+    """분석 요청 JSON 저장. 논문 데이터를 직접 포함하므로 Zotero 앱 불필요."""
     safe_kw = _safe_filename(keyword)
     json_path = output_dir / f"{safe_kw}_analysis.json"
+
+    papers_text = ""
+    if db_path:
+        papers_text = read_collection_papers_from_zotero(db_path, keyword)
+
     instructions = (
-        f"Zotero MCP에서 컬렉션 '{keyword}'의 논문들을 zotero_search_items로 검색하고, "
-        f"각 논문의 메타데이터와 초록을 확인한 뒤, 아래 연구 제안의 타당성을 한국어로 평가해주세요.\n\n"
+        f"이 JSON 파일의 'papers' 필드에 포함된 논문 목록을 바탕으로, "
+        f"아래 연구 제안의 타당성을 한국어로 평가해주세요. "
+        f"(Zotero MCP는 사용하지 않아도 됩니다.)\n\n"
         f"[연구 제안]\n{proposal}\n\n"
         f"[평가 항목]\n"
         f"1. 주요 연구 트렌드와의 관계\n"
@@ -651,6 +669,7 @@ def save_analysis_request(keyword: str, proposal: str, output_dir: Path) -> Path
         "collection": keyword.strip(),
         "proposal": proposal,
         "created_at": datetime.date.today().isoformat(),
+        "papers": papers_text,
         "instructions": instructions,
     }
     json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -863,7 +882,7 @@ def run_pipeline(db_path: Path, keyword: str, limit: int,
     # 분석 요청 JSON 저장 (proposal 있을 때)
     if proposal.strip():
         save_dir = output_path.parent if output_path else Path(".")
-        json_path = save_analysis_request(keyword, proposal, save_dir)
+        json_path = save_analysis_request(keyword, proposal, save_dir, db_path=db_path)
         log_fn(f"[INFO] 분석 요청 파일 저장됨: {json_path.name}")
         log_fn("[INFO] GUI에서 'AI 분석' 버튼을 클릭하거나 Claude Code에서 파일을 열어주세요.")
 
