@@ -617,7 +617,11 @@ async def analyze_with_notebooklm(db_path: Path, keyword: str,
                     f"[평가 항목]\n"
                     f"1. 주요 연구 트렌드와의 관계\n"
                     f"2. 연구 공백(gap) 및 차별성\n"
-                    f"3. 타당성 종합 평가"
+                    f"3. 타당성 종합 평가\n\n"
+                    f"[추가 요청]\n"
+                    f"평가 내용에서 근거로 사용한 논문들을 마지막에 "
+                    f"'[참고 논문]' 섹션으로 번호 목록화해 주세요. "
+                    f"각 항목은 '저자 (연도). 제목.' 형식으로 작성해주세요."
                 )
                 log_fn("[NLM] 분석 중... (수십 초 소요)")
                 result = await client.chat.ask(nb.id, question)
