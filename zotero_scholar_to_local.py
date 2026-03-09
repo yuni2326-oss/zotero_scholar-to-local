@@ -18,6 +18,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+# ── Windows 기업 CA 인증서 연동 (optional) ──────────────────────────────────
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
+
 # ── docx 의존성 (optional) ───────────────────────────────────────────────────
 try:
     from docx import Document
@@ -597,9 +604,9 @@ async def analyze_with_notebooklm(db_path: Path, keyword: str,
         log_fn("[ERROR] notebooklm-py 미설치: pip install 'notebooklm-py[browser]'")
         return
 
-    text = read_collection_papers_from_zotero(db_path, keyword)
+    text = read_collection_papers_from_zotero(db_path)  # 전체 라이브러리
     if not text.strip():
-        log_fn(f"[WARN] Zotero 컬렉션 '{keyword}'에 논문이 없습니다.")
+        log_fn("[WARN] Zotero 라이브러리에 논문이 없습니다.")
         return
 
     log_fn("[NLM] NotebookLM 연결 중...")
@@ -656,7 +663,7 @@ def save_analysis_request(keyword: str, proposal: str, output_dir: Path,
 
     papers_text = ""
     if db_path:
-        papers_text = read_collection_papers_from_zotero(db_path, keyword)
+        papers_text = read_collection_papers_from_zotero(db_path)  # 전체 라이브러리
 
     instructions = (
         f"이 JSON 파일의 'papers' 필드에 포함된 논문 목록을 바탕으로, "
@@ -666,7 +673,9 @@ def save_analysis_request(keyword: str, proposal: str, output_dir: Path,
         f"[평가 항목]\n"
         f"1. 주요 연구 트렌드와의 관계\n"
         f"2. 연구 공백(gap) 및 차별성\n"
-        f"3. 타당성 종합 평가"
+        f"3. 타당성 종합 평가\n\n"
+        f"답변 마지막에 평가에 활용한 논문 목록을 '[참고 논문]' 섹션으로 정리해주세요. "
+        f"형식: 번호. 저자 (연도). 제목. 저널/출처."
     )
     data = {
         "keyword": keyword,
